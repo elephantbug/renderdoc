@@ -2951,7 +2951,52 @@ RDResult WrappedVulkan::ContextReplayLog(CaptureState readType, uint32_t startEv
 
     m_LastCmdBufferID = ResourceId();
 
-    bool success = ContextProcessChunk(ser, chunktype);
+    bool success = true;
+    
+    bool skip = false;
+
+    bool trimmingMode = true;
+    
+    if(trimmingMode && IsActiveReplaying(m_State))
+    {
+        if (chunktype == VulkanChunk::vkCmdDrawIndexed)
+        {
+            auto i = m_chunkEvents.find(m_CurChunkOffset);
+
+            if(i != m_chunkEvents.end())
+            {
+                auto eventId = i->second;
+                
+                if (!(28 <= eventId && eventId <= 44))
+                {
+                  skip = true;
+                }
+                
+                //28 44
+                
+                //skip = i->second != 69 && i->second != 75;
+                //skip = i->second != 27;
+
+                if(skip)
+                {
+                    RDCDEBUG("Found 27");
+                }
+            }
+            else
+            {
+                // RDCDEBUG("Chunk not found.");
+            }
+        }
+    }
+
+    if (!skip)
+    {
+      success = ContextProcessChunk(ser, chunktype);
+    }
+    else
+    {
+      RDCDEBUG("Skipping 27");
+    }
 
     ser.EndChunk();
 
@@ -3037,9 +3082,37 @@ RDResult WrappedVulkan::ContextReplayLog(CaptureState readType, uint32_t startEv
 
   if(IsLoading(m_State))
   {
-    GetReplay()->WriteFrameRecord().actionList = m_ParentAction.Bake();
+    FrameRecord &frame = GetReplay()->WriteFrameRecord();
 
-    SetupActionPointers(m_Actions, GetReplay()->WriteFrameRecord().actionList);
+    frame.actionList = m_ParentAction.Bake();
+
+    for(const ActionDescription &action : frame.actionList)
+    {
+      RDCASSERT(action.children.empty());
+
+      for(const APIEvent &event : action.events)
+      {
+        if (event.chunkIndex != APIEvent::NoChunk)
+        {
+          RDCASSERT(event.chunkIndex < m_StructuredFile->chunks.size());
+          
+          const SDChunk * chunk = m_StructuredFile->chunks[event.chunkIndex];
+
+          const rdcstr chunkName = chunk->name;
+          
+          RDCLOG("Adding chunk index #%d %s (type no: %d, offset: %d) -> event #%d", event.chunkIndex, chunkName.c_str(),
+                 chunk->metadata.chunkID, event.fileOffset, event.eventId);
+            
+          if(!m_chunkEvents.emplace(event.fileOffset, event.eventId).second)
+          {
+            //RDCASSERT(FALSE);
+            RDCLOG("Duplicate offset: %d", event.fileOffset);
+          }
+        }
+      }
+    }
+    
+    SetupActionPointers(m_Actions, frame.actionList);
 
     m_ParentAction.children.clear();
   }

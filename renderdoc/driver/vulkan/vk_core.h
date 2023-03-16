@@ -980,6 +980,8 @@ private:
 
   VulkanActionTreeNode m_ParentAction;
 
+  std::unordered_map<uint64_t, uint32_t> m_chunkEvents;
+
   bool m_LayersEnabled[VkCheckLayer_Max] = {};
 
   // in vk_<platform>.cpp
